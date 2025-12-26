@@ -1,76 +1,124 @@
-#!/usr/bin/env node
-
+#!/usr/bin/env bun
+import { intro, outro, spinner, log, cancel } from "@clack/prompts";
 import chalk from "chalk";
-import { detectSetup, validateSetup } from "./detector";
-import { selectOrm } from "./orm";
-import { setupPrisma } from "./orms/prisma";
-import { setupDrizzle } from "./orms/drizzle";
+import { detectProject } from "./detector";
+import { promptOrmSetup } from "./prompts";
+import { resolvePaths } from "./paths";
+import { generateDrizzleSetup } from "./generators/drizzle";
+import { installDependencies, addPackageScripts } from "./package-manager";
 
 async function main() {
+  console.clear();
+
+  intro(chalk.bold.blue("🗄️  ORM Setup CLI v1.0.0"));
+
   try {
-    console.log(chalk.bold.cyan("\n🗄️  ORM Setup CLI\n"));
-    console.log(chalk.gray("Setup Prisma or Drizzle with best practices\n"));
+    // Step 1: Detect project structure
+    const s = spinner();
+    s.start("Analyzing your project...");
 
-    // Step 1: Detect current setup
-    const setup = await detectSetup();
+    const project = await detectProject();
 
-    // Step 2: Validate requirements
-    const validation = validateSetup(setup);
-    if (!validation.valid) {
-      console.log(chalk.red(`\n❌ ${validation.error}\n`));
+    s.stop("Project analyzed");
 
-      // Provide helpful guidance
-      if (validation.error?.includes("DATABASE_URL")) {
-        console.log(chalk.cyan("💡 Tip: Run this first:"));
-        console.log(chalk.white("   bunx @sidgaikwad/db-setup\n"));
+    // Display what we found
+    log.info(
+      `${chalk.green("✓")} ${
+        project.hasTypescript ? "TypeScript" : "JavaScript"
+      } project`
+    );
+    log.info(`${chalk.green("✓")} Package manager: ${project.packageManager}`);
+    if (project.srcDir) {
+      log.info(`${chalk.green("✓")} Source directory: ${project.srcDir}/`);
+    }
+    if (project.database.url) {
+      log.info(
+        `${chalk.green("✓")} Database: ${project.database.type} (from .env)`
+      );
+    } else {
+      log.warn(`${chalk.yellow("!")} No DATABASE_URL found in .env`);
+    }
+
+    // Check for existing ORM
+    if (project.hasDrizzle) {
+      log.warn(
+        `${chalk.yellow("⚠")} Drizzle is already set up in this project`
+      );
+      const shouldContinue = await confirm({
+        message: "Continue anyway? (this may overwrite files)",
+        initialValue: false,
+      });
+      if (!shouldContinue) {
+        cancel("Operation cancelled");
+        process.exit(0);
       }
-
-      process.exit(1);
     }
 
-    // Step 3: Select ORM and configuration
-    const config = await selectOrm(setup);
+    // Step 2: Get user preferences
+    const config = await promptOrmSetup(project);
 
-    // Step 4: Run setup based on selected ORM
-    if (config.orm === "prisma") {
-      await setupPrisma(setup, config);
-    } else if (config.orm === "drizzle") {
-      await setupDrizzle(setup, config);
+    // Step 3: Resolve file paths
+    const paths = resolvePaths(project.srcDir, config.clientPath);
+
+    // Step 4: Install dependencies
+    s.start("Installing dependencies...");
+    await installDependencies(
+      project.packageManager,
+      config.database,
+      config.includeStudio
+    );
+    s.stop("Dependencies installed");
+
+    // Step 5: Generate files
+    s.start("Generating files...");
+    await generateDrizzleSetup({
+      paths,
+      database: config.database,
+      typescript: project.hasTypescript,
+      includeExamples: config.includeSchema,
+    });
+    s.stop("Files generated");
+
+    // Step 6: Add scripts to package.json
+    s.start("Updating package.json...");
+    await addPackageScripts(config.database);
+    s.stop("package.json updated");
+
+    // Success!
+    outro(chalk.green.bold("✅ Drizzle ORM setup complete!"));
+
+    // Show next steps
+    console.log();
+    log.step(`Import your database client:`);
+    console.log(chalk.cyan(`  import { db } from '@/lib/db'`));
+    console.log();
+    log.step("Next steps:");
+    console.log(`  ${chalk.gray("1.")} Add DATABASE_URL to .env`);
+    console.log(
+      `  ${chalk.gray("2.")} Run: ${chalk.cyan(
+        "bun db:generate"
+      )} (create migration)`
+    );
+    console.log(
+      `  ${chalk.gray("3.")} Run: ${chalk.cyan(
+        "bun db:migrate"
+      )} (apply migration)`
+    );
+    if (config.includeStudio) {
+      console.log(
+        `  ${chalk.gray("4.")} Run: ${chalk.cyan(
+          "bun db:studio"
+        )} (open database GUI)`
+      );
     }
-
-    console.log(chalk.green("\n🎉 Setup completed successfully!\n"));
-    console.log(chalk.gray("Happy coding! 🚀\n"));
+    console.log();
+    log.info(`Documentation: ${chalk.cyan("https://orm.drizzle.team/docs")}`);
   } catch (error) {
     if (error instanceof Error) {
-      console.error(chalk.red("\n❌ Setup failed:"), error.message);
-
-      if (error.message.includes("ENOENT")) {
-        console.log(
-          chalk.yellow("\n💡 Make sure you're in your project directory\n")
-        );
-      }
-    } else {
-      console.error(chalk.red("\n❌ Setup failed:"), error);
+      log.error(chalk.red(`Error: ${error.message}`));
     }
-
-    console.log(
-      chalk.gray(
-        "Tip: Run the command again or check the error message above.\n"
-      )
-    );
     process.exit(1);
   }
 }
-
-// Handle graceful shutdown
-process.on("SIGINT", () => {
-  console.log(chalk.yellow("\n\n⚠️  Setup cancelled by user\n"));
-  process.exit(0);
-});
-
-process.on("SIGTERM", () => {
-  console.log(chalk.yellow("\n\n⚠️  Setup cancelled\n"));
-  process.exit(0);
-});
 
 main();
