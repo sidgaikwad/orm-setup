@@ -22,6 +22,10 @@ export async function generatePrismaSetup(
       path: paths.clientFile.replace("/db.ts", "/prisma.ts"),
       content: generatePrismaClient(),
     },
+    {
+      path: "prisma.config.ts",
+      content: generatePrismaConfig(),
+    },
   ];
 
   await writeMultipleFiles(files);
@@ -40,4 +44,21 @@ if (process.env.NODE_ENV !== 'production') {
   globalForPrisma.prisma = prisma
 }
 `;
+}
+
+function generatePrismaConfig(): string {
+  return `import 'dotenv/config'
+import { defineConfig, env } from "prisma/config";
+
+export default defineConfig({
+  schema: 'prisma/schema.prisma',
+  migrations: { 
+    path: 'prisma/migrations',
+    seed: 'tsx prisma/seed.ts',
+  },
+  datasource: { 
+    url: env("DATABASE_URL") 
+  }
+});
+  `;
 }

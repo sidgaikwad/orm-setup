@@ -191,7 +191,6 @@ export function getPrismaSchema(
 
   const baseSchema = `datasource db {
   provider = "${provider}"
-  url      = env("DATABASE_URL")
 }
 
 generator client {
