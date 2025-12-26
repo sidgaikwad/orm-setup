@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
+import { join } from "path";
 import { spawnSync } from "child_process";
 import chalk from "chalk";
 import type { DetectedSetup } from "../detector";
@@ -6,296 +7,302 @@ import type { OrmConfig } from "../orm";
 import { generateDrizzleSchema } from "../schema-generator";
 
 /**
- * Install Drizzle dependencies
- */
-async function installDependencies(
-  packageManager: string,
-  database: string
-): Promise<boolean> {
-  console.log(chalk.blueBright("Installing Drizzle..."));
-
-  // Determine database driver
-  const driver =
-    database === "postgresql"
-      ? "postgres"
-      : database === "mysql"
-      ? "mysql2"
-      : "better-sqlite3";
-
-  const packages = ["drizzle-orm", driver];
-  const devPackages = ["drizzle-kit"];
-
-  const commands: Record<string, { prod: string[]; dev: string[] }> = {
-    bun: {
-      prod: ["add", ...packages],
-      dev: ["add", "-d", ...devPackages],
-    },
-    npm: {
-      prod: ["install", ...packages],
-      dev: ["install", "-D", ...devPackages],
-    },
-    pnpm: {
-      prod: ["add", ...packages],
-      dev: ["add", "-D", ...devPackages],
-    },
-    yarn: {
-      prod: ["add", ...packages],
-      dev: ["add", "-D", ...devPackages],
-    },
-  };
-
-  const cmd = commands[packageManager] || commands.bun;
-
-  // Install production dependencies
-  const prodResult = spawnSync(packageManager, cmd.prod, {
-    shell: true,
-    stdio: "inherit",
-  });
-
-  if (prodResult.status !== 0) return false;
-
-  // Install dev dependencies
-  const devResult = spawnSync(packageManager, cmd.dev, {
-    shell: true,
-    stdio: "inherit",
-  });
-
-  if (devResult.status === 0) {
-    console.log(chalk.green(`✓ Installed drizzle-orm and ${driver}`));
-    console.log(chalk.green("✓ Installed drizzle-kit (dev)"));
-    return true;
-  }
-
-  return false;
-}
-
-/**
- * Generate Drizzle client file
- */
-function generateClient(database: string): string {
-  if (database === "postgresql") {
-    return `import { drizzle } from 'drizzle-orm/postgres-js'
-import postgres from 'postgres'
-import * as schema from './schema'
-
-if (!process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL is not set')
-}
-
-const client = postgres(process.env.DATABASE_URL)
-export const db = drizzle(client, { schema })
-`;
-  } else if (database === "mysql") {
-    return `import { drizzle } from 'drizzle-orm/mysql2'
-import mysql from 'mysql2/promise'
-import * as schema from './schema'
-
-if (!process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL is not set')
-}
-
-const client = await mysql.createConnection(process.env.DATABASE_URL)
-export const db = drizzle(client, { schema, mode: 'default' })
-`;
-  } else {
-    return `import { drizzle } from 'drizzle-orm/better-sqlite3'
-import Database from 'better-sqlite3'
-import * as schema from './schema'
-
-if (!process.env.DATABASE_URL) {
-  throw new Error('DATABASE_URL is not set')
-}
-
-const sqlite = new Database(process.env.DATABASE_URL)
-export const db = drizzle(sqlite, { schema })
-`;
-  }
-}
-
-/**
- * Generate Drizzle config file
- */
-function generateConfig(database: string): string {
-  const dialect =
-    database === "postgresql"
-      ? "postgresql"
-      : database === "mysql"
-      ? "mysql"
-      : "sqlite";
-
-  return `import { defineConfig } from 'drizzle-kit'
-
-export default defineConfig({
-  schema: './src/db/schema.ts',
-  out: './drizzle',
-  dialect: '${dialect}',
-  dbCredentials: {
-    url: process.env.DATABASE_URL!,
-  },
-})
-`;
-}
-
-/**
- * Generate migrate script
- */
-function generateMigrateScript(database: string): string {
-  if (database === "postgresql") {
-    return `import { drizzle } from 'drizzle-orm/postgres-js'
-import { migrate } from 'drizzle-orm/postgres-js/migrator'
-import postgres from 'postgres'
-
-const runMigrate = async () => {
-  console.log('⏳ Running migrations...')
-
-  const connection = postgres(process.env.DATABASE_URL!, { max: 1 })
-  const db = drizzle(connection)
-
-  await migrate(db, { migrationsFolder: './drizzle' })
-
-  await connection.end()
-
-  console.log('✅ Migrations complete!')
-  process.exit(0)
-}
-
-runMigrate().catch((err) => {
-  console.error('❌ Migration failed')
-  console.error(err)
-  process.exit(1)
-})
-`;
-  }
-
-  return "";
-}
-
-/**
- * Update package.json with Drizzle scripts
- */
-function updatePackageJson(packageManager: string, database: string): void {
-  try {
-    const packageJson = JSON.parse(readFileSync("package.json", "utf-8"));
-
-    const dialect =
-      database === "postgresql"
-        ? "pg"
-        : database === "mysql"
-        ? "mysql"
-        : "sqlite";
-
-    packageJson.scripts = packageJson.scripts || {};
-    packageJson.scripts["db:generate"] = `drizzle-kit generate`;
-    packageJson.scripts["db:migrate"] =
-      packageManager === "bun"
-        ? "bun src/db/migrate.ts"
-        : "tsx src/db/migrate.ts";
-    packageJson.scripts["db:push"] = `drizzle-kit push`;
-    packageJson.scripts["db:studio"] = "drizzle-kit studio";
-
-    writeFileSync("package.json", JSON.stringify(packageJson, null, 2));
-    console.log(chalk.green("✓ Added scripts to package.json"));
-  } catch (error) {
-    console.log(chalk.yellow("⚠️  Could not update package.json"));
-  }
-}
-
-/**
- * Main Drizzle setup function
+ * Setup Drizzle ORM
  */
 export async function setupDrizzle(
-  setup: DetectedSetup,
+  detected: DetectedSetup,
   config: OrmConfig
 ): Promise<void> {
-  console.log(
-    chalk.blueBright("\n================ Installing Drizzle ================\n")
-  );
+  console.log(chalk.blue("\n📦 Setting up Drizzle...\n"));
 
   // 1. Install dependencies
-  const installed = await installDependencies(
-    setup.packageManager,
-    setup.database
-  );
-  if (!installed) {
-    console.log(chalk.red("\n❌ Failed to install Drizzle dependencies"));
-    process.exit(1);
-  }
+  await installDrizzleDependencies(detected.packageManager, detected.database);
 
-  // 2. Create directory structure
-  console.log(chalk.blueBright("\nGenerating files..."));
-
+  // 2. Create db directory
   const dbDir = "src/db";
   if (!existsSync(dbDir)) {
     mkdirSync(dbDir, { recursive: true });
   }
 
-  if (!existsSync("drizzle")) {
-    mkdirSync("drizzle", { recursive: true });
-  }
-
   // 3. Generate and write schema
-  const schemaContent = generateDrizzleSchema(
-    setup.database as any,
-    config.schemaType
-  );
-  writeFileSync(`${dbDir}/schema.ts`, schemaContent);
-  console.log(chalk.green(`✓ Created ${dbDir}/schema.ts`));
+  await writeDrizzleSchema(detected, config);
 
-  // 4. Generate and write client
-  const clientContent = generateClient(setup.database);
-  writeFileSync(`${dbDir}/index.ts`, clientContent);
-  console.log(chalk.green(`✓ Created ${dbDir}/index.ts`));
+  // 4. Create Drizzle client file
+  await writeDrizzleClient(detected);
 
-  // 5. Generate and write config
-  const configContent = generateConfig(setup.database);
-  writeFileSync("drizzle.config.ts", configContent);
-  console.log(chalk.green("✓ Created drizzle.config.ts"));
+  // 5. Create migration runner
+  await writeDrizzleMigrate(detected);
 
-  // 6. Generate migrate script
-  if (setup.database === "postgresql") {
-    const migrateContent = generateMigrateScript(setup.database);
-    writeFileSync(`${dbDir}/migrate.ts`, migrateContent);
-    console.log(chalk.green(`✓ Created ${dbDir}/migrate.ts`));
+  // 6. Create drizzle.config.ts
+  await writeDrizzleConfig(detected);
+
+  // 7. Update package.json scripts
+  await updatePackageJsonScripts(detected.database);
+
+  console.log(chalk.green("\n✅ Drizzle setup complete!\n"));
+  printNextSteps();
+}
+
+/**
+ * Install Drizzle dependencies
+ */
+async function installDrizzleDependencies(
+  packageManager: DetectedSetup["packageManager"],
+  database: DetectedSetup["database"]
+): Promise<void> {
+  console.log(chalk.blue("Installing Drizzle dependencies..."));
+
+  // Base packages
+  const packages = ["drizzle-orm", "drizzle-kit"];
+
+  // Add database-specific driver
+  const driverMap: Record<DetectedSetup["database"], string> = {
+    postgresql: "postgres",
+    mysql: "mysql2",
+    sqlite: "better-sqlite3",
+    unknown: "postgres",
+  };
+
+  packages.push(driverMap[database]);
+
+  const installCmd: Record<typeof packageManager, string> = {
+    bun: `bun add ${packages.join(" ")}`,
+    npm: `npm install ${packages.join(" ")}`,
+    pnpm: `pnpm add ${packages.join(" ")}`,
+    yarn: `yarn add ${packages.join(" ")}`,
+  };
+
+  const result = spawnSync(installCmd[packageManager], {
+    stdio: "inherit",
+    shell: true,
+  });
+
+  if (result.error) {
+    throw new Error(`Failed to install Drizzle: ${result.error.message}`);
   }
 
-  // 7. Update package.json with scripts
-  updatePackageJson(setup.packageManager, setup.database);
+  console.log(chalk.green("✓ Installed Drizzle dependencies\n"));
+}
 
-  // 8. Generate initial migration
-  if (config.schemaType !== "none") {
-    console.log(chalk.blueBright("\nGenerating initial migration..."));
-    const generateResult = spawnSync("npx", ["drizzle-kit", "generate"], {
-      shell: true,
-      stdio: "inherit",
-    });
+/**
+ * Write Drizzle schema file
+ */
+async function writeDrizzleSchema(
+  detected: DetectedSetup,
+  config: OrmConfig
+): Promise<void> {
+  console.log(chalk.blue("Generating Drizzle schema..."));
 
-    if (generateResult.status === 0) {
-      console.log(chalk.green("✓ Initial migration generated"));
-    }
+  // Normalize database type (handle 'unknown' case)
+  const normalizedDb =
+    detected.database === "unknown" ? "postgresql" : detected.database;
+
+  // Generate schema content (already returns correct syntax for database type)
+  const schemaContent = generateDrizzleSchema(normalizedDb, config.schemaType);
+
+  // Write to file
+  const schemaPath = "src/db/schema.ts";
+  writeFileSync(schemaPath, schemaContent, "utf-8");
+
+  console.log(chalk.green(`✓ Created ${schemaPath}\n`));
+}
+
+/**
+ * Write Drizzle client
+ */
+async function writeDrizzleClient(detected: DetectedSetup): Promise<void> {
+  console.log(chalk.blue("Creating Drizzle client..."));
+
+  const templatePath = join(__dirname, "../../templates/drizzle/db.ts");
+  let clientContent: string;
+
+  if (existsSync(templatePath)) {
+    clientContent = readFileSync(templatePath, "utf-8");
+  } else {
+    // Fallback: inline template based on database type
+    const importMap: Record<DetectedSetup["database"], string> = {
+      postgresql:
+        "import { drizzle } from 'drizzle-orm/postgres-js'\nimport postgres from 'postgres'",
+      mysql:
+        "import { drizzle } from 'drizzle-orm/mysql2'\nimport mysql from 'mysql2/promise'",
+      sqlite:
+        "import { drizzle } from 'drizzle-orm/better-sqlite3'\nimport Database from 'better-sqlite3'",
+      unknown:
+        "import { drizzle } from 'drizzle-orm/postgres-js'\nimport postgres from 'postgres'",
+    };
+
+    const clientMap: Record<DetectedSetup["database"], string> = {
+      postgresql: `const queryClient = postgres(connectionString)
+export const db = drizzle(queryClient, { schema })`,
+      mysql: `const queryClient = mysql.createPool(connectionString)
+export const db = drizzle(queryClient, { schema })`,
+      sqlite: `const queryClient = new Database(connectionString)
+export const db = drizzle(queryClient, { schema })`,
+      unknown: `const queryClient = postgres(connectionString)
+export const db = drizzle(queryClient, { schema })`,
+    };
+
+    clientContent = `${importMap[detected.database]}
+import * as schema from './schema'
+
+const connectionString = process.env.DATABASE_URL!
+
+if (!connectionString) {
+  throw new Error('DATABASE_URL is not defined')
+}
+
+${clientMap[detected.database]}
+`;
   }
 
-  // 9. Show success message
-  console.log(chalk.greenBright("\n✅ Drizzle setup complete!\n"));
-  console.log(chalk.cyan("Next steps:"));
-  console.log(
-    chalk.gray("  1. Review schema: ") + chalk.white(`${dbDir}/schema.ts`)
-  );
-  console.log(
-    chalk.gray("  2. Run migration: ") +
-      chalk.white(`${setup.packageManager} run db:migrate`)
-  );
-  console.log(
-    chalk.gray("  3. Start coding with: ") +
-      chalk.white(`import { db } from '@/db'`)
-  );
-  console.log(
-    chalk.gray("  4. Open Drizzle Studio: ") +
-      chalk.white(`${setup.packageManager} run db:studio`)
-  );
+  writeFileSync("src/db/index.ts", clientContent, "utf-8");
 
+  console.log(chalk.green("✓ Created src/db/index.ts\n"));
+}
+
+/**
+ * Write Drizzle migration runner
+ */
+async function writeDrizzleMigrate(detected: DetectedSetup): Promise<void> {
+  console.log(chalk.blue("Creating migration runner..."));
+
+  const templatePath = join(__dirname, "../../templates/drizzle/migrate.ts");
+  let migrateContent: string;
+
+  if (existsSync(templatePath)) {
+    migrateContent = readFileSync(templatePath, "utf-8");
+  } else {
+    // Fallback: inline template
+    const importMap: Record<DetectedSetup["database"], string> = {
+      postgresql:
+        "import { drizzle } from 'drizzle-orm/postgres-js'\nimport { migrate } from 'drizzle-orm/postgres-js/migrator'\nimport postgres from 'postgres'",
+      mysql:
+        "import { drizzle } from 'drizzle-orm/mysql2'\nimport { migrate } from 'drizzle-orm/mysql2/migrator'\nimport mysql from 'mysql2/promise'",
+      sqlite:
+        "import { drizzle } from 'drizzle-orm/better-sqlite3'\nimport { migrate } from 'drizzle-orm/better-sqlite3/migrator'\nimport Database from 'better-sqlite3'",
+      unknown:
+        "import { drizzle } from 'drizzle-orm/postgres-js'\nimport { migrate } from 'drizzle-orm/postgres-js/migrator'\nimport postgres from 'postgres'",
+    };
+
+    const clientMap: Record<DetectedSetup["database"], string> = {
+      postgresql:
+        "const sql = postgres(connectionString, { max: 1 })\n  const db = drizzle(sql)",
+      mysql:
+        "const connection = await mysql.createConnection(connectionString)\n  const db = drizzle(connection)",
+      sqlite:
+        "const sqlite = new Database(connectionString)\n  const db = drizzle(sqlite)",
+      unknown:
+        "const sql = postgres(connectionString, { max: 1 })\n  const db = drizzle(sql)",
+    };
+
+    migrateContent = `${importMap[detected.database]}
+
+const connectionString = process.env.DATABASE_URL!
+
+async function main() {
+  console.log('🚀 Running migrations...')
+
+  ${clientMap[detected.database]}
+
+  await migrate(db, { migrationsFolder: './drizzle/migrations' })
+
+  console.log('✅ Migrations completed!')
+}
+
+main()
+  .catch((e) => {
+    console.error('❌ Migration failed')
+    console.error(e)
+    process.exit(1)
+  })
+`;
+  }
+
+  writeFileSync("src/db/migrate.ts", migrateContent, "utf-8");
+
+  console.log(chalk.green("✓ Created src/db/migrate.ts\n"));
+}
+
+/**
+ * Write drizzle.config.ts
+ */
+async function writeDrizzleConfig(detected: DetectedSetup): Promise<void> {
+  console.log(chalk.blue("Creating Drizzle config..."));
+
+  const driverMap: Record<DetectedSetup["database"], string> = {
+    postgresql: "pg",
+    mysql: "mysql2",
+    sqlite: "better-sqlite3",
+    unknown: "pg",
+  };
+
+  const configContent = `import type { Config } from 'drizzle-kit'
+
+export default {
+  schema: './src/db/schema.ts',
+  out: './drizzle/migrations',
+  driver: '${driverMap[detected.database]}',
+  dbCredentials: {
+    connectionString: process.env.DATABASE_URL!,
+  },
+} satisfies Config
+`;
+
+  writeFileSync("drizzle.config.ts", configContent, "utf-8");
+
+  console.log(chalk.green("✓ Created drizzle.config.ts\n"));
+}
+
+/**
+ * Update package.json with Drizzle scripts
+ */
+async function updatePackageJsonScripts(
+  database: DetectedSetup["database"]
+): Promise<void> {
+  console.log(chalk.blue("Adding scripts to package.json..."));
+
+  try {
+    const packageJson = JSON.parse(readFileSync("package.json", "utf-8"));
+
+    const driverSuffix: Record<typeof database, string> = {
+      postgresql: "pg",
+      mysql: "mysql2",
+      sqlite: "sqlite",
+      unknown: "pg",
+    };
+
+    packageJson.scripts = {
+      ...packageJson.scripts,
+      "db:generate": `drizzle-kit generate:${driverSuffix[database]}`,
+      "db:migrate": "bun src/db/migrate.ts",
+      "db:push": `drizzle-kit push:${driverSuffix[database]}`,
+      "db:studio": "drizzle-kit studio",
+    };
+
+    writeFileSync(
+      "package.json",
+      JSON.stringify(packageJson, null, 2),
+      "utf-8"
+    );
+
+    console.log(chalk.green("✓ Added Drizzle scripts to package.json\n"));
+  } catch (error) {
+    console.log(chalk.yellow("⚠ Could not update package.json scripts"));
+  }
+}
+
+/**
+ * Print next steps
+ */
+function printNextSteps(): void {
+  console.log(chalk.bold("\n📚 Next Steps:\n"));
+  console.log(chalk.gray("  1. Review your schema:"), "src/db/schema.ts");
+  console.log(chalk.gray("  2. Generate migration:"), "bun run db:generate");
+  console.log(chalk.gray("  3. Apply migration:"), "bun run db:migrate");
+  console.log(chalk.gray("  4. Open Drizzle Studio:"), "bun run db:studio");
   console.log(
-    chalk.blueBright("\n📚 Documentation: ") +
-      chalk.white("https://orm.drizzle.team/docs")
+    chalk.gray("\n  5. Import in your code:"),
+    "import { db } from '@/db'"
   );
-  console.log(chalk.yellow("─".repeat(60)));
+  console.log(chalk.gray("\n  📖 Docs:"), "https://orm.drizzle.team\n");
 }

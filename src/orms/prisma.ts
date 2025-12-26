@@ -1,328 +1,329 @@
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
-import { dirname } from "path";
+import { dirname, join } from "path";
 import { spawnSync } from "child_process";
 import chalk from "chalk";
 import type { DetectedSetup } from "../detector";
 import type { OrmConfig } from "../orm";
-import { getFrameworkPaths } from "../framework-detector";
 import { generatePrismaSchema } from "../schema-generator";
+
+/**
+ * Setup Prisma ORM
+ */
+export async function setupPrisma(
+  detected: DetectedSetup,
+  config: OrmConfig
+): Promise<void> {
+  console.log(chalk.blue("\n📦 Setting up Prisma...\n"));
+
+  // 1. Install dependencies
+  await installPrismaDependencies(detected.packageManager);
+
+  // 2. Create prisma directory
+  const prismaDir = "prisma";
+  if (!existsSync(prismaDir)) {
+    mkdirSync(prismaDir, { recursive: true });
+  }
+
+  // 3. Generate and write schema
+  await writePrismaSchema(detected, config);
+
+  // 4. Create Prisma client file
+  await writePrismaClient(detected);
+
+  // 5. Create seed file (if requested)
+  if (config.includeSeed) {
+    await writePrismaSeed(config.schemaType);
+  }
+
+  // 6. Update package.json scripts
+  await updatePackageJsonScripts();
+
+  // 7. Generate Prisma Client
+  await generatePrismaClient(detected.packageManager);
+
+  console.log(chalk.green("\n✅ Prisma setup complete!\n"));
+  printNextSteps();
+}
 
 /**
  * Install Prisma dependencies
  */
-async function installDependencies(packageManager: string): Promise<boolean> {
-  console.log(chalk.blueBright("Installing Prisma..."));
+async function installPrismaDependencies(
+  packageManager: DetectedSetup["packageManager"]
+): Promise<void> {
+  console.log(chalk.blue("Installing Prisma dependencies..."));
 
-  const commands: Record<string, string[]> = {
-    bun: ["add", "@prisma/client"],
-    npm: ["install", "@prisma/client"],
-    pnpm: ["add", "@prisma/client"],
-    yarn: ["add", "@prisma/client"],
+  const commands: Record<typeof packageManager, string[]> = {
+    bun: ["bun", "add", "@prisma/client", "&&", "bun", "add", "-d", "prisma"],
+    npm: [
+      "npm",
+      "install",
+      "@prisma/client",
+      "&&",
+      "npm",
+      "install",
+      "-D",
+      "prisma",
+    ],
+    pnpm: [
+      "pnpm",
+      "add",
+      "@prisma/client",
+      "&&",
+      "pnpm",
+      "add",
+      "-D",
+      "prisma",
+    ],
+    yarn: [
+      "yarn",
+      "add",
+      "@prisma/client",
+      "&&",
+      "yarn",
+      "add",
+      "-D",
+      "prisma",
+    ],
   };
 
-  const devCommands: Record<string, string[]> = {
-    bun: ["add", "-d", "prisma"],
-    npm: ["install", "-D", "prisma"],
-    pnpm: ["add", "-D", "prisma"],
-    yarn: ["add", "-D", "prisma"],
-  };
-
-  const cmd = commands[packageManager] || commands.bun;
-  const devCmd = devCommands[packageManager] || devCommands.bun;
-
-  // Install production dependency
-  const result = spawnSync(packageManager, cmd, {
-    shell: true,
+  const [cmd, ...args] = commands[packageManager];
+  const result = spawnSync(cmd, args, {
     stdio: "inherit",
+    shell: true,
   });
 
-  if (result.status !== 0) return false;
-
-  // Install dev dependency
-  const devResult = spawnSync(packageManager, devCmd, {
-    shell: true,
-    stdio: "inherit",
-  });
-
-  if (devResult.status === 0) {
-    console.log(chalk.green("✓ Installed @prisma/client"));
-    console.log(chalk.green("✓ Installed prisma (dev)"));
-    return true;
+  if (result.error) {
+    throw new Error(`Failed to install Prisma: ${result.error.message}`);
   }
 
-  return false;
+  console.log(chalk.green("✓ Installed Prisma dependencies\n"));
 }
 
 /**
- * Generate Prisma client file
+ * Write Prisma schema file with proper database provider
  */
-function generateClient(): string {
-  return `import { PrismaClient } from '@prisma/client'
+async function writePrismaSchema(
+  detected: DetectedSetup,
+  config: OrmConfig
+): Promise<void> {
+  console.log(chalk.blue("Generating Prisma schema..."));
+
+  // Map database types to Prisma providers
+  const providerMap: Record<DetectedSetup["database"], string> = {
+    postgresql: "postgresql",
+    mysql: "mysql",
+    sqlite: "sqlite",
+    unknown: "postgresql", // default
+  };
+
+  const provider = providerMap[detected.database];
+
+  // Normalize database type (handle 'unknown' case)
+  const normalizedDb =
+    detected.database === "unknown" ? "postgresql" : detected.database;
+
+  // Generate schema content
+  const schemaContent = generatePrismaSchema(normalizedDb, config.schemaType);
+
+  // Replace the placeholder with actual provider
+  const finalSchema = schemaContent.replace(/{{DATABASE_PROVIDER}}/g, provider);
+
+  // Write to file
+  const schemaPath = "prisma/schema.prisma";
+  writeFileSync(schemaPath, finalSchema, "utf-8");
+
+  console.log(chalk.green(`✓ Created ${schemaPath}\n`));
+}
+
+/**
+ * Write Prisma client singleton
+ */
+async function writePrismaClient(detected: DetectedSetup): Promise<void> {
+  console.log(chalk.blue("Creating Prisma client..."));
+
+  // Determine client path based on framework
+  const clientPaths: Record<string, string> = {
+    nextjs: "lib/db.ts",
+    remix: "app/db.server.ts",
+    sveltekit: "src/lib/db.ts",
+    astro: "src/lib/db.ts",
+    express: "src/db.ts",
+    fastify: "src/db.ts",
+    unknown: "src/db.ts",
+  };
+
+  // Get framework name safely
+  const frameworkName =
+    typeof detected.framework === "object"
+      ? detected.framework.name
+      : detected.framework;
+
+  const clientPath = clientPaths[frameworkName] || clientPaths.unknown;
+
+  // Read template from templates directory
+  const templatePath = join(__dirname, "../../templates/prisma/client.ts");
+  let clientContent: string;
+
+  if (existsSync(templatePath)) {
+    clientContent = readFileSync(templatePath, "utf-8");
+  } else {
+    // Fallback: inline template
+    clientContent = `import { PrismaClient } from '@prisma/client'
 
 const globalForPrisma = globalThis as unknown as {
   prisma: PrismaClient | undefined
 }
 
-export const prisma = globalForPrisma.prisma ?? new PrismaClient({
-  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
-})
+export const prisma =
+  globalForPrisma.prisma ??
+  new PrismaClient({
+    log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+  })
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.prisma = prisma
-}
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma
 `;
+  }
+
+  // Create directory if needed
+  const dir = dirname(clientPath);
+  if (!existsSync(dir)) {
+    mkdirSync(dir, { recursive: true });
+  }
+
+  writeFileSync(clientPath, clientContent, "utf-8");
+
+  console.log(chalk.green(`✓ Created ${clientPath}\n`));
 }
 
 /**
- * Generate seed file
+ * Write Prisma seed file
  */
-function generateSeedFile(schemaType: OrmConfig["schemaType"]): string {
-  if (schemaType === "none") return "";
+async function writePrismaSeed(
+  schemaType: OrmConfig["schemaType"]
+): Promise<void> {
+  console.log(chalk.blue("Creating seed file..."));
 
-  let seedContent = `import { PrismaClient } from '@prisma/client'
+  const templatePath = join(__dirname, "../../templates/prisma/seed.ts");
+  let seedContent: string;
+
+  if (existsSync(templatePath)) {
+    seedContent = readFileSync(templatePath, "utf-8");
+  } else {
+    // Fallback: inline template
+    seedContent = `import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
 async function main() {
   console.log('🌱 Seeding database...')
 
-`;
-
-  if (schemaType === "minimal") {
-    seedContent += `  // Create sample users
-  const alice = await prisma.user.upsert({
-    where: { email: 'alice@example.com' },
+  const user = await prisma.user.upsert({
+    where: { email: 'demo@example.com' },
     update: {},
     create: {
-      email: 'alice@example.com',
-      name: 'Alice',
+      email: 'demo@example.com',
+      name: 'Demo User',
     },
   })
 
-  const bob = await prisma.user.upsert({
-    where: { email: 'bob@example.com' },
-    update: {},
-    create: {
-      email: 'bob@example.com',
-      name: 'Bob',
-    },
-  })
-
-  console.log('✓ Created users:', { alice, bob })
-`;
-  } else if (schemaType === "full") {
-    seedContent += `  // Delete existing data
-  await prisma.comment.deleteMany()
-  await prisma.post.deleteMany()
-  await prisma.user.deleteMany()
-
-  // Create users
-  const alice = await prisma.user.create({
-    data: {
-      email: 'alice@example.com',
-      name: 'Alice',
-      posts: {
-        create: [
-          {
-            title: 'Getting Started with Prisma',
-            content: 'Prisma makes database access easy and type-safe!',
-            published: true,
-          },
-          {
-            title: 'My Second Post',
-            content: 'This is a draft post',
-            published: false,
-          },
-        ],
-      },
-    },
-  })
-
-  const bob = await prisma.user.create({
-    data: {
-      email: 'bob@example.com',
-      name: 'Bob',
-    },
-  })
-
-  // Add comment from Bob to Alice's first post
-  const alicePost = await prisma.post.findFirst({
-    where: { 
-      authorId: alice.id,
-      published: true,
-    },
-  })
-
-  if (alicePost) {
-    await prisma.comment.create({
-      data: {
-        content: 'Great post, Alice! Really helpful.',
-        postId: alicePost.id,
-        authorId: bob.id,
-      },
-    })
-  }
-
-  console.log('✓ Seeded database with users, posts, and comments')
-`;
-  }
-
-  seedContent += `}
+  console.log('✅ Created user:', user.email)
+  console.log('✅ Seeding completed!')
+}
 
 main()
   .catch((e) => {
-    console.error('❌ Seed failed:', e)
+    console.error(e)
     process.exit(1)
   })
   .finally(async () => {
     await prisma.$disconnect()
   })
 `;
+  }
 
-  return seedContent;
+  writeFileSync("prisma/seed.ts", seedContent, "utf-8");
+
+  console.log(chalk.green("✓ Created prisma/seed.ts\n"));
 }
 
 /**
  * Update package.json with Prisma scripts
  */
-function updatePackageJson(packageManager: string, includeSeed: boolean): void {
+async function updatePackageJsonScripts(): Promise<void> {
+  console.log(chalk.blue("Adding scripts to package.json..."));
+
   try {
     const packageJson = JSON.parse(readFileSync("package.json", "utf-8"));
 
-    packageJson.scripts = packageJson.scripts || {};
-    packageJson.scripts["db:generate"] = "prisma generate";
-    packageJson.scripts["db:migrate"] = "prisma migrate dev";
-    packageJson.scripts["db:push"] = "prisma db push";
-    packageJson.scripts["db:studio"] = "prisma studio";
-    packageJson.scripts["db:reset"] = "prisma migrate reset";
+    packageJson.scripts = {
+      ...packageJson.scripts,
+      "db:migrate": "prisma migrate dev",
+      "db:push": "prisma db push",
+      "db:seed": "prisma db seed",
+      "db:studio": "prisma studio",
+      "db:generate": "prisma generate",
+    };
 
-    if (includeSeed) {
-      packageJson.scripts["db:seed"] = "prisma db seed";
-      packageJson.prisma = {
-        seed:
-          packageManager === "bun"
-            ? "bun prisma/seed.ts"
-            : "tsx prisma/seed.ts",
-      };
-    }
+    packageJson.prisma = {
+      seed: "bun prisma/seed.ts",
+    };
 
-    writeFileSync("package.json", JSON.stringify(packageJson, null, 2));
-    console.log(chalk.green("✓ Added scripts to package.json"));
-  } catch (error) {
-    console.log(chalk.yellow("⚠️  Could not update package.json"));
-  }
-}
-
-/**
- * Run Prisma generate
- */
-function generatePrismaClient(): boolean {
-  console.log(chalk.blueBright("\nGenerating Prisma Client..."));
-
-  const result = spawnSync("npx", ["prisma", "generate"], {
-    shell: true,
-    stdio: "inherit",
-  });
-
-  if (result.status === 0) {
-    console.log(chalk.green("✓ Prisma Client generated"));
-    return true;
-  }
-
-  return false;
-}
-
-/**
- * Main Prisma setup function
- */
-export async function setupPrisma(
-  setup: DetectedSetup,
-  config: OrmConfig
-): Promise<void> {
-  console.log(
-    chalk.blueBright("\n================ Installing Prisma ================\n")
-  );
-
-  // 1. Install dependencies
-  const installed = await installDependencies(setup.packageManager);
-  if (!installed) {
-    console.log(chalk.red("\n❌ Failed to install Prisma dependencies"));
-    process.exit(1);
-  }
-
-  // 2. Create directory structure
-  console.log(chalk.blueBright("\nGenerating files..."));
-
-  if (!existsSync("prisma")) {
-    mkdirSync("prisma", { recursive: true });
-  }
-
-  const paths = getFrameworkPaths(setup.framework);
-
-  // Ensure lib directory exists
-  const clientDir = dirname(paths.clientPath);
-  if (!existsSync(clientDir)) {
-    mkdirSync(clientDir, { recursive: true });
-  }
-
-  // 3. Generate and write schema
-  const schemaContent = generatePrismaSchema(
-    setup.database as any,
-    config.schemaType
-  );
-  writeFileSync("prisma/schema.prisma", schemaContent);
-  console.log(chalk.green("✓ Created prisma/schema.prisma"));
-
-  // 4. Generate and write client
-  const clientContent = generateClient();
-  writeFileSync(paths.clientPath, clientContent);
-  console.log(chalk.green(`✓ Created ${paths.clientPath}`));
-
-  // 5. Generate and write seed file (if requested)
-  if (config.includeSeed && config.schemaType !== "none") {
-    const seedContent = generateSeedFile(config.schemaType);
-    writeFileSync("prisma/seed.ts", seedContent);
-    console.log(chalk.green("✓ Created prisma/seed.ts"));
-  }
-
-  // 6. Update package.json with scripts
-  updatePackageJson(setup.packageManager, config.includeSeed);
-
-  // 7. Generate Prisma Client
-  generatePrismaClient();
-
-  // 8. Show success message
-  console.log(chalk.greenBright("\n✅ Prisma setup complete!\n"));
-  console.log(chalk.cyan("Next steps:"));
-  console.log(
-    chalk.gray("  1. Review schema: ") + chalk.white("prisma/schema.prisma")
-  );
-  console.log(
-    chalk.gray("  2. Create migration: ") +
-      chalk.white(`${setup.packageManager} run db:migrate`)
-  );
-
-  if (config.includeSeed) {
-    console.log(
-      chalk.gray("  3. Seed database (optional): ") +
-        chalk.white(`${setup.packageManager} run db:seed`)
+    writeFileSync(
+      "package.json",
+      JSON.stringify(packageJson, null, 2),
+      "utf-8"
     );
+
+    console.log(chalk.green("✓ Added Prisma scripts to package.json\n"));
+  } catch (error) {
+    console.log(chalk.yellow("⚠ Could not update package.json scripts"));
   }
+}
 
-  console.log(
-    chalk.gray(`  ${config.includeSeed ? "4" : "3"}. Start coding with: `) +
-      chalk.white(
-        `import { prisma } from '@/${paths.clientPath.replace(".ts", "")}'`
-      )
-  );
-  console.log(
-    chalk.gray(`  ${config.includeSeed ? "5" : "4"}. Open Prisma Studio: `) +
-      chalk.white(`${setup.packageManager} run db:studio`)
+/**
+ * Generate Prisma Client
+ */
+async function generatePrismaClient(
+  packageManager: DetectedSetup["packageManager"]
+): Promise<void> {
+  console.log(chalk.blue("Generating Prisma Client..."));
+
+  const commands: Record<typeof packageManager, string[]> = {
+    bun: ["bunx", "prisma", "generate"],
+    npm: ["npx", "prisma", "generate"],
+    pnpm: ["pnpm", "exec", "prisma", "generate"],
+    yarn: ["yarn", "prisma", "generate"],
+  };
+
+  const result = spawnSync(
+    commands[packageManager][0],
+    commands[packageManager].slice(1),
+    {
+      stdio: "inherit",
+    }
   );
 
+  if (result.error) {
+    console.log(chalk.yellow("⚠ Could not generate Prisma Client"));
+    console.log(chalk.yellow("  Run 'prisma generate' manually after setup"));
+  } else {
+    console.log(chalk.green("✓ Generated Prisma Client\n"));
+  }
+}
+
+/**
+ * Print next steps
+ */
+function printNextSteps(): void {
+  console.log(chalk.bold("\n📚 Next Steps:\n"));
+  console.log(chalk.gray("  1. Review your schema:"), "prisma/schema.prisma");
+  console.log(chalk.gray("  2. Create migration:"), "bun run db:migrate");
+  console.log(chalk.gray("  3. Seed database:"), "bun run db:seed");
+  console.log(chalk.gray("  4. Open Prisma Studio:"), "bun run db:studio");
   console.log(
-    chalk.blueBright("\n📚 Documentation: ") +
-      chalk.white("https://www.prisma.io/docs")
+    chalk.gray("\n  5. Import in your code:"),
+    "import { prisma } from '@/lib/db'"
   );
-  console.log(chalk.yellow("─".repeat(60)));
+  console.log(chalk.gray("\n  📖 Docs:"), "https://www.prisma.io/docs\n");
 }

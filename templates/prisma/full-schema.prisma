@@ -1,0 +1,49 @@
+// This is your Prisma schema file
+// Learn more: https://pris.ly/d/prisma-schema
+
+generator client {
+    provider = "prisma-client-js"
+}
+
+datasource db {
+    provider = "{{DATABASE_PROVIDER}}"
+    url      = env("DATABASE_URL")
+}
+
+model User {
+    id        String    @id @default(cuid())
+    email     String    @unique
+    name      String?
+    posts     Post[]
+    comments  Comment[]
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+}
+
+model Post {
+    id        String    @id @default(cuid())
+    title     String
+    content   String?
+    published Boolean   @default(false)
+    author    User      @relation(fields: [authorId], references: [id], onDelete: Cascade)
+    authorId  String
+    comments  Comment[]
+    createdAt DateTime  @default(now())
+    updatedAt DateTime  @updatedAt
+
+    @@index([authorId])
+}
+
+model Comment {
+    id        String   @id @default(cuid())
+    content   String
+    post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+    postId    String
+    author    User     @relation(fields: [authorId], references: [id], onDelete: Cascade)
+    authorId  String
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+
+    @@index([postId])
+    @@index([authorId])
+}
