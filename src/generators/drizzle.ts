@@ -1,32 +1,28 @@
 import { writeMultipleFiles } from "../file-writer";
-import { generateClient, generateConfig, generateMigrate } from "./templates";
-import { generateSchemaForORM } from "./table-generators";
+import {
+  generateSchema,
+  generateClient,
+  generateConfig,
+  generateMigrate,
+} from "./templates";
 import type { ResolvedPaths } from "../paths";
-import type { TableDefinition } from "../templates/table-definitions";
 
 interface GenerateOptions {
   paths: ResolvedPaths;
   database: "postgresql" | "mysql" | "sqlite";
   typescript: boolean;
-  selectedTables: TableDefinition[]; // CHANGED: was includeExamples
+  includeExamples: boolean; // Keep this for now
 }
 
 export async function generateDrizzleSetup(
   options: GenerateOptions
 ): Promise<void> {
-  const { paths, database, selectedTables } = options;
-
-  // Generate schema using the new system
-  const schemaContent = generateSchemaForORM(
-    "drizzle",
-    selectedTables,
-    database
-  );
+  const { paths, database, includeExamples } = options;
 
   const files = [
     {
       path: paths.schemaFile,
-      content: schemaContent, // CHANGED: use generated schema
+      content: generateSchema(database, includeExamples),
     },
     {
       path: paths.clientFile,

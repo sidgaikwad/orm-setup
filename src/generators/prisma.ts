@@ -1,39 +1,75 @@
+// src/generators/prisma.ts
 import { writeMultipleFiles } from "../file-writer";
-import { generateSchemaForORM } from "./table-generators";
 import type { ResolvedPaths } from "../paths";
-import type { TableDefinition } from "../templates/table-definitions";
 
 interface GenerateOptions {
   paths: ResolvedPaths;
   database: "postgresql" | "mysql" | "sqlite";
-  selectedTables: TableDefinition[];
+  includeExamples: boolean;
 }
 
 export async function generatePrismaSetup(
   options: GenerateOptions
 ): Promise<void> {
-  const { paths, database, selectedTables } = options;
+  const { paths, database, includeExamples } = options;
 
-  // Generate Prisma schema
-  const schemaContent = generateSchemaForORM(
-    "prisma",
-    selectedTables,
-    database
-  );
-
-  // Prisma uses a different file structure
   const files = [
     {
       path: "prisma/schema.prisma",
-      content: schemaContent,
+      content: generatePrismaSchema(database, includeExamples),
     },
     {
-      path: paths.clientFile,
+      path: paths.clientFile.replace("/db.ts", "/prisma.ts"), // Use prisma.ts instead of db.ts
       content: generatePrismaClient(),
     },
   ];
 
   await writeMultipleFiles(files);
+}
+
+function generatePrismaSchema(
+  database: "postgresql" | "mysql" | "sqlite",
+  includeExamples: boolean
+): string {
+  const provider =
+    database === "postgresql"
+      ? "postgresql"
+      : database === "mysql"
+      ? "mysql"
+      : "sqlite";
+
+  const baseSchema = `datasource db {
+  provider = "${provider}"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+`;
+
+  if (!includeExamples) {
+    return `${baseSchema}
+// Define your models here
+// Example:
+// model User {
+//   id    String @id @default(uuid())
+//   email String @unique
+// }
+`;
+  }
+
+  const userModel = `
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+`;
+
+  return `${baseSchema}${userModel}`;
 }
 
 function generatePrismaClient(): string {
