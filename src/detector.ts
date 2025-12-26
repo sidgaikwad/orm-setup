@@ -12,7 +12,7 @@ export interface ProjectInfo {
   };
 }
 
-async function fileExists(path: string): Promise {
+async function fileExists(path: string): Promise<boolean> {
   try {
     await access(path);
     return true;
@@ -21,20 +21,25 @@ async function fileExists(path: string): Promise {
   }
 }
 
-async function detectPackageManager(): Promise {
+async function detectPackageManager(): Promise<
+  "bun" | "npm" | "pnpm" | "yarn"
+> {
   if (await fileExists("bun.lockb")) return "bun";
   if (await fileExists("pnpm-lock.yaml")) return "pnpm";
   if (await fileExists("yarn.lock")) return "yarn";
   return "npm";
 }
 
-async function detectSourceDir(): Promise {
+async function detectSourceDir(): Promise<string | null> {
   if (await fileExists("src")) return "src";
   if (await fileExists("app")) return "app";
   return null;
 }
 
-async function detectDatabase(): Promise {
+async function detectDatabase(): Promise<{
+  type: "postgresql" | "mysql" | "sqlite" | "unknown";
+  url: string | null;
+}> {
   const envFiles = [".env", ".env.local", ".env.development"];
 
   for (const file of envFiles) {
@@ -62,7 +67,7 @@ async function detectDatabase(): Promise {
   return { type: "unknown", url: null };
 }
 
-async function detectExistingDrizzle(): Promise {
+async function detectExistingDrizzle(): Promise<boolean> {
   const indicators = [
     "drizzle.config.ts",
     "drizzle.config.js",
@@ -76,7 +81,7 @@ async function detectExistingDrizzle(): Promise {
   return false;
 }
 
-export async function detectProject(): Promise {
+export async function detectProject(): Promise<ProjectInfo> {
   const [hasTypescript, packageManager, srcDir, hasDrizzle, database] =
     await Promise.all([
       fileExists("tsconfig.json"),

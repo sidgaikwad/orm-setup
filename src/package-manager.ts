@@ -19,7 +19,7 @@ export async function installDependencies(
   pm: PackageManager,
   database: Database,
   includeStudio: boolean
-): Promise {
+): Promise<void> {
   const driver = getDriverPackage(database);
 
   // Runtime dependencies
@@ -42,7 +42,7 @@ export async function installDependencies(
   await execa(pm, [addCmd, devFlag, ...devDeps], { stdio: "inherit" });
 }
 
-export async function addPackageScripts(database: Database): Promise {
+export async function addPackageScripts(database: Database): Promise<void> {
   const pkgPath = "package.json";
   const content = await readFile(pkgPath, "utf-8");
   const pkg = JSON.parse(content);

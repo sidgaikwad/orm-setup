@@ -8,7 +8,9 @@ export interface SetupConfig {
   clientPath?: string;
 }
 
-export async function promptOrmSetup(project: ProjectInfo): Promise {
+export async function promptOrmSetup(
+  project: ProjectInfo
+): Promise<SetupConfig> {
   // Database selection
   const database = (await select({
     message: "Select your database",
@@ -33,7 +35,7 @@ export async function promptOrmSetup(project: ProjectInfo): Promise {
       project.database.type !== "unknown"
         ? project.database.type
         : "postgresql",
-  })) as Promise;
+  })) as "postgresql" | "mysql" | "sqlite";
 
   // Schema inclusion
   const includeSchema = (await confirm({

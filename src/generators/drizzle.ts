@@ -1,8 +1,11 @@
+// src/generators/drizzle.ts
 import { writeMultipleFiles } from "../file-writer";
-import { generateSchema } from "./templates/drizzle-schema";
-import { generateClient } from "./templates/drizzle-client";
-import { generateConfig } from "./templates/drizzle-config";
-import { generateMigrate } from "./templates/drizzle-migrate";
+import {
+  generateSchema,
+  generateClient,
+  generateConfig,
+  generateMigrate,
+} from "./templates";
 import type { ResolvedPaths } from "../paths";
 
 interface GenerateOptions {
@@ -12,7 +15,9 @@ interface GenerateOptions {
   includeExamples: boolean;
 }
 
-export async function generateDrizzleSetup(options: GenerateOptions): Promise<void> {
+export async function generateDrizzleSetup(
+  options: GenerateOptions
+): Promise<void> {
   const { paths, database, includeExamples } = options;
 
   const files = [
@@ -22,7 +27,7 @@ export async function generateDrizzleSetup(options: GenerateOptions): Promise<vo
     },
     {
       path: paths.clientFile,
-      content: generateClient(database, paths.schemaDir),
+      content: generateClient(database),
     },
     {
       path: paths.configFile,
