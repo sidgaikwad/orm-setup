@@ -1,31 +1,22 @@
-// src/generators/kysely.ts
 import { writeMultipleFiles } from "../file-writer";
-import { generateSchemaForORM } from "./table-generators";
+import { getKyselySchema } from "./templates/schemas";
 import type { ResolvedPaths } from "../paths";
-import type { TableDefinition } from "../templates/table-definitions";
 
 interface GenerateOptions {
   paths: ResolvedPaths;
   database: "postgresql" | "mysql" | "sqlite";
-  selectedTables: TableDefinition[];
+  template: "empty" | "starter" | "blog" | "ecommerce" | "saas";
 }
 
 export async function generateKyselySetup(
   options: GenerateOptions
 ): Promise<void> {
-  const { paths, database, selectedTables } = options;
-
-  // Generate Kysely schema (TypeScript interfaces)
-  const schemaContent = generateSchemaForORM(
-    "kysely",
-    selectedTables,
-    database
-  );
+  const { paths, database, template } = options;
 
   const files = [
     {
       path: paths.schemaFile,
-      content: schemaContent,
+      content: getKyselySchema(template),
     },
     {
       path: paths.clientFile,
@@ -53,14 +44,10 @@ if (!process.env.DATABASE_URL) {
 }
 
 const dialect = new PostgresDialect({
-  pool: new Pool({
-    connectionString: process.env.DATABASE_URL,
-  }),
+  pool: new Pool({ connectionString: process.env.DATABASE_URL }),
 })
 
-export const db = new Kysely<Database>({
-  dialect,
-})
+export const db = new Kysely<Database>({ dialect })
 `;
   }
 
@@ -77,13 +64,10 @@ const dialect = new MysqlDialect({
   pool: createPool(process.env.DATABASE_URL),
 })
 
-export const db = new Kysely<Database>({
-  dialect,
-})
+export const db = new Kysely<Database>({ dialect })
 `;
   }
 
-  // SQLite
   return `import { Kysely, SqliteDialect } from 'kysely'
 import Database from 'better-sqlite3'
 import type { Database as DatabaseType } from './db/schema'
@@ -96,15 +80,11 @@ const dialect = new SqliteDialect({
   database: new Database(process.env.DATABASE_URL),
 })
 
-export const db = new Kysely<DatabaseType>({
-  dialect,
-})
+export const db = new Kysely<DatabaseType>({ dialect })
 `;
 }
 
-function generateKyselyMigrator(
-  database: "postgresql" | "mysql" | "sqlite"
-): string {
+function generateKyselyMigrator(database: string): string {
   return `import { promises as fs } from 'fs'
 import { Migrator, FileMigrationProvider } from 'kysely'
 import { db } from '../db'

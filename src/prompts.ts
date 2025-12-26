@@ -1,43 +1,49 @@
-// src/prompts.ts (FIXED - no import errors)
+// src/prompts.ts
 import { select, confirm, text, isCancel } from "@clack/prompts";
 import type { ProjectInfo } from "./detector";
+
+type OrmType = "drizzle" | "prisma" | "kysely";
+type DatabaseType = "postgresql" | "mysql" | "sqlite";
+type TemplateType = "empty" | "starter" | "blog" | "ecommerce" | "saas";
 
 export interface SetupConfig {
   orm: OrmType;
   database: DatabaseType;
-  includeSchema: boolean;
+  template: TemplateType;
   includeStudio: boolean;
   clientPath?: string;
 }
 
-type OrmType = "drizzle" | "prisma" | "kysely";
-type DatabaseType = "postgresql" | "mysql" | "sqlite";
-
 export async function promptOrmSetup(
   project: ProjectInfo
 ): Promise<SetupConfig> {
-  // ORM Selection
   const ormResult = await select({
     message: "Select your ORM",
     options: [
-      { value: "drizzle", label: "Drizzle" },
-      { value: "prisma", label: "Prisma" },
-      { value: "kysely", label: "Kysely" },
+      {
+        value: "drizzle",
+        label: "Drizzle",
+        hint: "TypeScript-first, lightweight",
+      },
+      { value: "prisma", label: "Prisma", hint: "Most popular, great DX" },
+      { value: "kysely", label: "Kysely", hint: "Type-safe SQL builder" },
     ],
     initialValue: "drizzle",
   });
 
   if (isCancel(ormResult)) process.exit(0);
-
   const orm = ormResult as OrmType;
 
-  // Database selection
   const dbResult = await select({
     message: "Select your database",
     options: [
-      { value: "postgresql", label: "PostgreSQL" },
-      { value: "mysql", label: "MySQL/MariaDB" },
-      { value: "sqlite", label: "SQLite" },
+      {
+        value: "postgresql",
+        label: "PostgreSQL",
+        hint: "Recommended for production",
+      },
+      { value: "mysql", label: "MySQL/MariaDB", hint: "Popular choice" },
+      { value: "sqlite", label: "SQLite", hint: "Great for development" },
     ],
     initialValue:
       project.database.type !== "unknown"
@@ -46,42 +52,72 @@ export async function promptOrmSetup(
   });
 
   if (isCancel(dbResult)) process.exit(0);
-
   const database = dbResult as DatabaseType;
 
-  // Schema inclusion
-  const includeSchema = (await confirm({
-    message: "Include starter schema (User model)?",
-    initialValue: true,
-  })) as boolean;
+  const templateResult = await select({
+    message: "Choose your schema template",
+    options: [
+      { value: "starter", label: "📦 Starter", hint: "User table only" },
+      {
+        value: "blog",
+        label: "🚀 Blog",
+        hint: "User, Post, Comment, Category",
+      },
+      {
+        value: "ecommerce",
+        label: "🛒 E-commerce",
+        hint: "User, Product, Order, Cart",
+      },
+      {
+        value: "saas",
+        label: "💼 SaaS",
+        hint: "User, Organization, Subscription",
+      },
+      {
+        value: "empty",
+        label: "❌ Empty",
+        hint: "No tables, start from scratch",
+      },
+    ],
+    initialValue: "starter",
+  });
 
-  // Drizzle Studio (only for Drizzle)
+  if (isCancel(templateResult)) process.exit(0);
+  const template = templateResult as TemplateType;
+
   let includeStudio = false;
   if (orm === "drizzle") {
-    includeStudio = (await confirm({
+    const studio = await confirm({
       message: "Include Drizzle Studio? (database GUI)",
       initialValue: true,
-    })) as boolean;
+    });
+
+    if (isCancel(studio)) process.exit(0);
+    includeStudio = studio;
   }
 
-  // Custom path (advanced)
-  const useCustomPath = (await confirm({
+  const useCustomPath = await confirm({
     message: "Use custom path for database client?",
     initialValue: false,
-  })) as boolean;
+  });
+
+  if (isCancel(useCustomPath)) process.exit(0);
 
   let clientPath: string | undefined;
   if (useCustomPath) {
-    clientPath = (await text({
+    const path = await text({
       message: "Enter path (e.g., src/lib/database)",
       placeholder: project.srcDir ? `${project.srcDir}/lib/db` : "lib/db",
-    })) as string;
+    });
+
+    if (isCancel(path)) process.exit(0);
+    clientPath = path;
   }
 
   return {
     orm,
     database,
-    includeSchema,
+    template,
     includeStudio,
     clientPath,
   };

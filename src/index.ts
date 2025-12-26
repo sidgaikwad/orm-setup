@@ -81,8 +81,8 @@ async function main() {
         await generateDrizzleSetup({
           paths,
           database: config.database,
+          template: config.template, // ✅ NEW
           typescript: project.hasTypescript,
-          includeExamples: config.includeSchema,
         });
         break;
 
@@ -90,7 +90,7 @@ async function main() {
         await generatePrismaSetup({
           paths,
           database: config.database,
-          includeExamples: config.includeSchema,
+          template: config.template, // ✅ NEW
         });
         break;
 
@@ -98,7 +98,7 @@ async function main() {
         await generateKyselySetup({
           paths,
           database: config.database,
-          selectedTables: [], // Empty for now, will add templates later
+          template: config.template, // ✅ NEW
         });
         break;
     }

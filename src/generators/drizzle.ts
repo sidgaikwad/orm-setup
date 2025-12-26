@@ -1,28 +1,25 @@
+// src/generators/drizzle.ts (updated to use templates)
 import { writeMultipleFiles } from "../file-writer";
-import {
-  generateSchema,
-  generateClient,
-  generateConfig,
-  generateMigrate,
-} from "./templates";
+import { generateClient, generateConfig, generateMigrate } from "./templates";
+import { getDrizzleSchema } from "./templates/schemas";
 import type { ResolvedPaths } from "../paths";
 
 interface GenerateOptions {
   paths: ResolvedPaths;
   database: "postgresql" | "mysql" | "sqlite";
   typescript: boolean;
-  includeExamples: boolean; // Keep this for now
+  template: "empty" | "starter" | "blog" | "ecommerce" | "saas";
 }
 
 export async function generateDrizzleSetup(
   options: GenerateOptions
 ): Promise<void> {
-  const { paths, database, includeExamples } = options;
+  const { paths, database, template } = options;
 
   const files = [
     {
       path: paths.schemaFile,
-      content: generateSchema(database, includeExamples),
+      content: getDrizzleSchema(template, database),
     },
     {
       path: paths.clientFile,

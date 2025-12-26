@@ -1,75 +1,30 @@
-// src/generators/prisma.ts
 import { writeMultipleFiles } from "../file-writer";
+import { getPrismaSchema } from "./templates/schemas";
 import type { ResolvedPaths } from "../paths";
 
 interface GenerateOptions {
   paths: ResolvedPaths;
   database: "postgresql" | "mysql" | "sqlite";
-  includeExamples: boolean;
+  template: "empty" | "starter" | "blog" | "ecommerce" | "saas";
 }
 
 export async function generatePrismaSetup(
   options: GenerateOptions
 ): Promise<void> {
-  const { paths, database, includeExamples } = options;
+  const { paths, database, template } = options;
 
   const files = [
     {
       path: "prisma/schema.prisma",
-      content: generatePrismaSchema(database, includeExamples),
+      content: getPrismaSchema(template, database),
     },
     {
-      path: paths.clientFile.replace("/db.ts", "/prisma.ts"), // Use prisma.ts instead of db.ts
+      path: paths.clientFile.replace("/db.ts", "/prisma.ts"),
       content: generatePrismaClient(),
     },
   ];
 
   await writeMultipleFiles(files);
-}
-
-function generatePrismaSchema(
-  database: "postgresql" | "mysql" | "sqlite",
-  includeExamples: boolean
-): string {
-  const provider =
-    database === "postgresql"
-      ? "postgresql"
-      : database === "mysql"
-      ? "mysql"
-      : "sqlite";
-
-  const baseSchema = `datasource db {
-  provider = "${provider}"
-  url      = env("DATABASE_URL")
-}
-
-generator client {
-  provider = "prisma-client-js"
-}
-`;
-
-  if (!includeExamples) {
-    return `${baseSchema}
-// Define your models here
-// Example:
-// model User {
-//   id    String @id @default(uuid())
-//   email String @unique
-// }
-`;
-  }
-
-  const userModel = `
-model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  name      String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
-`;
-
-  return `${baseSchema}${userModel}`;
 }
 
 function generatePrismaClient(): string {
