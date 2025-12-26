@@ -1,5 +1,4 @@
 import { writeMultipleFiles } from "../file-writer";
-import { generateClient, generateConfig, generateMigrate } from "./templates";
 import { generateSchemaForORM } from "./table-generators";
 import type { ResolvedPaths } from "../paths";
 import type { TableDefinition } from "../templates/table-definitions";
@@ -7,40 +6,47 @@ import type { TableDefinition } from "../templates/table-definitions";
 interface GenerateOptions {
   paths: ResolvedPaths;
   database: "postgresql" | "mysql" | "sqlite";
-  typescript: boolean;
-  selectedTables: TableDefinition[]; // CHANGED: was includeExamples
+  selectedTables: TableDefinition[];
 }
 
-export async function generateDrizzleSetup(
+export async function generatePrismaSetup(
   options: GenerateOptions
 ): Promise<void> {
   const { paths, database, selectedTables } = options;
 
-  // Generate schema using the new system
+  // Generate Prisma schema
   const schemaContent = generateSchemaForORM(
-    "drizzle",
+    "prisma",
     selectedTables,
     database
   );
 
+  // Prisma uses a different file structure
   const files = [
     {
-      path: paths.schemaFile,
-      content: schemaContent, // CHANGED: use generated schema
+      path: "prisma/schema.prisma",
+      content: schemaContent,
     },
     {
       path: paths.clientFile,
-      content: generateClient(database),
-    },
-    {
-      path: paths.configFile,
-      content: generateConfig(database, paths.schemaFile, paths.migrationsDir),
-    },
-    {
-      path: paths.migrateFile,
-      content: generateMigrate(database),
+      content: generatePrismaClient(),
     },
   ];
 
   await writeMultipleFiles(files);
+}
+
+function generatePrismaClient(): string {
+  return `import { PrismaClient } from '@prisma/client'
+
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClient | undefined
+}
+
+export const prisma = globalForPrisma.prisma ?? new PrismaClient()
+
+if (process.env.NODE_ENV !== 'production') {
+  globalForPrisma.prisma = prisma
+}
+`;
 }

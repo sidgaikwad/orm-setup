@@ -1,9 +1,21 @@
-import { select, confirm, text } from "@clack/prompts";
+// src/prompts.ts (updated with template selection)
+import { select, confirm, text, multiselect } from "@clack/prompts";
 import type { ProjectInfo } from "./detector";
+import {
+  schemaTemplates,
+  allTables,
+  getTablesWithDependencies,
+} from "./templates/table-definitions";
+import type { TableDefinition } from "./templates/table-definitions";
 
 export interface SetupConfig {
+  orm: "drizzle" | "prisma" | "kysely";
   database: "postgresql" | "mysql" | "sqlite";
-  includeSchema: boolean;
+  template: string;
+  selectedTables: TableDefinition[];
+  includeAuth: boolean;
+  includeTimestamps: boolean;
+  includeSoftDeletes: boolean;
   includeStudio: boolean;
   clientPath?: string;
 }
@@ -11,6 +23,29 @@ export interface SetupConfig {
 export async function promptOrmSetup(
   project: ProjectInfo
 ): Promise<SetupConfig> {
+  // ORM Selection
+  const orm = (await select({
+    message: "Select your ORM",
+    options: [
+      {
+        value: "drizzle",
+        label: "Drizzle",
+        hint: "TypeScript-first, lightweight",
+      },
+      {
+        value: "prisma",
+        label: "Prisma",
+        hint: "Most popular, great DX",
+      },
+      {
+        value: "kysely",
+        label: "Kysely",
+        hint: "Type-safe SQL builder",
+      },
+    ],
+    initialValue: "drizzle",
+  })) as "drizzle" | "prisma" | "kysely";
+
   // Database selection
   const database = (await select({
     message: "Select your database",
@@ -37,17 +72,66 @@ export async function promptOrmSetup(
         : "postgresql",
   })) as "postgresql" | "mysql" | "sqlite";
 
-  // Schema inclusion
-  const includeSchema = (await confirm({
-    message: "Include starter schema (User model)?",
-    initialValue: true,
-  })) as boolean;
+  // Template Selection
+  const template = (await select({
+    message: "Choose your schema template",
+    options: schemaTemplates.map((t) => ({
+      value: t.id,
+      label: `${t.icon} ${t.name}`,
+      hint: t.description,
+    })),
+    initialValue: "starter",
+  })) as string;
 
-  // Drizzle Studio
-  const includeStudio = (await confirm({
-    message: "Include Drizzle Studio? (database GUI)",
-    initialValue: true,
-  })) as boolean;
+  let selectedTables: TableDefinition[] = [];
+  let includeAuth = false;
+  let includeTimestamps = true;
+  let includeSoftDeletes = false;
+
+  // If custom template, let user pick tables
+  if (template === "custom") {
+    const tableChoices = (await multiselect({
+      message: "Select tables to include (space to select, enter to confirm)",
+      options: allTables.map((t) => ({
+        value: t.name,
+        label: t.displayName,
+        hint: `${t.fields.length} fields`,
+      })),
+      required: false,
+    })) as string[];
+
+    // Get tables with dependencies
+    selectedTables = getTablesWithDependencies(tableChoices);
+
+    // Ask about common features
+    includeAuth = (await confirm({
+      message: "Include auth fields? (email, password, tokens)",
+      initialValue: true,
+    })) as boolean;
+
+    includeTimestamps = (await confirm({
+      message: "Include timestamps? (createdAt, updatedAt)",
+      initialValue: true,
+    })) as boolean;
+
+    includeSoftDeletes = (await confirm({
+      message: "Include soft deletes? (deletedAt)",
+      initialValue: false,
+    })) as boolean;
+  } else if (template !== "empty") {
+    // Use predefined template
+    const templateObj = schemaTemplates.find((t) => t.id === template);
+    selectedTables = templateObj?.tables || [];
+  }
+
+  // Drizzle Studio (only for Drizzle)
+  let includeStudio = false;
+  if (orm === "drizzle") {
+    includeStudio = (await confirm({
+      message: "Include Drizzle Studio? (database GUI)",
+      initialValue: true,
+    })) as boolean;
+  }
 
   // Custom path (advanced)
   const useCustomPath = (await confirm({
@@ -64,8 +148,13 @@ export async function promptOrmSetup(
   }
 
   return {
+    orm,
     database,
-    includeSchema,
+    template,
+    selectedTables,
+    includeAuth,
+    includeTimestamps,
+    includeSoftDeletes,
     includeStudio,
     clientPath,
   };
