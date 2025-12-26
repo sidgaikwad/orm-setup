@@ -1,77 +1,47 @@
 {
   "name": "@sidgaikwad/orm-setup",
   "version": "1.0.0",
-  "description": "Interactive CLI for setting up ORMs (Prisma, Drizzle) with best practices and starter schemas",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "description": "Framework-agnostic CLI for setting up Drizzle ORM with best practices",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "bin": {
     "orm-setup": "./bin/cli.js"
   },
   "files": [
     "dist",
     "bin",
-    "templates",
-    "README.md",
-    "LICENSE"
+    "templates"
   ],
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc --watch",
-    "prepublishOnly": "bun run build",
-    "test": "echo \"No tests yet\"",
-    "local": "bun run build && node bin/cli.js"
+    "dev": "bun run src/index.ts",
+    "build": "bun build src/index.ts --outdir dist --target node --minify && tsc --emitDeclarationOnly",
+    "test": "bun test",
+    "prepublishOnly": "bun run build"
   },
   "keywords": [
     "orm",
-    "prisma",
     "drizzle",
     "database",
     "cli",
     "setup",
-    "starter",
-    "nextjs",
-    "remix",
-    "typescript",
-    "schema",
-    "migration",
     "postgresql",
     "mysql",
-    "sqlite"
+    "sqlite",
+    "typescript",
+    "bun"
   ],
   "author": "Siddharth Gaikwad",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/sidgaikwad/orm-setup.git"
-  },
-  "bugs": {
-    "url": "https://github.com/sidgaikwad/orm-setup/issues"
-  },
-  "homepage": "https://github.com/sidgaikwad/orm-setup#readme",
   "dependencies": {
-    "@inquirer/prompts": "^5.0.0",
-    "chalk": "^4.1.2",
-    "ora": "^5.4.1"
+    "@clack/prompts": "^0.7.0",
+    "chalk": "^5.3.0",
+    "execa": "^8.0.1"
   },
   "devDependencies": {
-    "@types/node": "^20.0.0",
-    "typescript": "^5.3.0"
-  },
-  "peerDependencies": {
-    "prisma": ">=5.0.0",
-    "drizzle-orm": ">=0.29.0",
-    "drizzle-kit": ">=0.20.0"
-  },
-  "peerDependenciesMeta": {
-    "prisma": {
-      "optional": true
-    },
-    "drizzle-orm": {
-      "optional": true
-    },
-    "drizzle-kit": {
-      "optional": true
-    }
+    "@types/bun": "latest",
+    "@types/node": "^20.11.0",
+    "typescript": "^5.3.3"
   },
   "engines": {
     "node": ">=18.0.0"
