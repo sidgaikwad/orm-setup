@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { intro, outro, spinner, log, cancel } from "@clack/prompts";
+import { intro, outro, spinner, log, cancel, confirm } from "@clack/prompts";
 import chalk from "chalk";
 import { detectProject } from "./detector";
 import { promptOrmSetup } from "./prompts";
