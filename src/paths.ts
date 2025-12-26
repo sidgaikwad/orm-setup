@@ -1,3 +1,4 @@
+// src/paths.ts (with validation and debug)
 export interface ResolvedPaths {
   clientDir: string; // e.g., 'src/lib'
   clientFile: string; // e.g., 'src/lib/db.ts'
@@ -16,14 +17,17 @@ export function resolvePaths(
   let base: string;
 
   if (customPath) {
-    base = customPath;
+    // User provided custom path
+    base = customPath.replace(/\\/g, "/"); // Normalize Windows paths
   } else if (srcDir) {
+    // Use src directory structure
     base = `${srcDir}/lib`;
   } else {
+    // Root level lib directory
     base = "lib";
   }
 
-  return {
+  const paths: ResolvedPaths = {
     clientDir: base,
     clientFile: `${base}/db.ts`,
     schemaDir: `${base}/db`,
@@ -32,4 +36,13 @@ export function resolvePaths(
     configFile: "drizzle.config.ts",
     migrationsDir: "drizzle/migrations",
   };
+
+  // Debug logging
+  console.log("\n🔍 Debug - Resolved paths:");
+  console.log("  Base directory:", base);
+  console.log("  Client file:", paths.clientFile);
+  console.log("  Schema file:", paths.schemaFile);
+  console.log("");
+
+  return paths;
 }

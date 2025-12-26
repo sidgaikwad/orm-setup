@@ -1,4 +1,4 @@
-// src/generators/drizzle.ts
+// src/generators/drizzle.ts (with debug logging)
 import { writeMultipleFiles } from "../file-writer";
 import {
   generateSchema,
@@ -20,6 +20,14 @@ export async function generateDrizzleSetup(
 ): Promise<void> {
   const { paths, database, includeExamples } = options;
 
+  // Debug: Log what paths we're using
+  console.log("\n🔍 Debug - Paths to create:");
+  console.log("  Schema:", paths.schemaFile);
+  console.log("  Client:", paths.clientFile);
+  console.log("  Config:", paths.configFile);
+  console.log("  Migrate:", paths.migrateFile);
+  console.log("");
+
   const files = [
     {
       path: paths.schemaFile,
@@ -39,5 +47,12 @@ export async function generateDrizzleSetup(
     },
   ];
 
-  await writeMultipleFiles(files);
+  try {
+    await writeMultipleFiles(files);
+  } catch (error) {
+    if (error instanceof Error) {
+      console.error("\n❌ File generation failed:", error.message);
+    }
+    throw error;
+  }
 }

@@ -1,21 +1,34 @@
+// src/file-writer.ts
 import { mkdir, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 
 export async function writeFileWithDir(
   path: string,
   content: string
 ): Promise<void> {
-  // Ensure directory exists
-  await mkdir(dirname(path), { recursive: true });
+  try {
+    // Resolve to absolute path from current working directory
+    const absolutePath = resolve(process.cwd(), path);
+    const dir = dirname(absolutePath);
 
-  // Write file
-  await writeFile(path, content, "utf-8");
+    // Ensure directory exists
+    await mkdir(dir, { recursive: true });
+
+    // Write file
+    await writeFile(absolutePath, content, "utf-8");
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`Failed to write file ${path}: ${error.message}`);
+    }
+    throw error;
+  }
 }
 
 export async function writeMultipleFiles(
   files: Array<{ path: string; content: string }>
 ): Promise<void> {
-  await Promise.all(
-    files.map(({ path, content }) => writeFileWithDir(path, content))
-  );
+  // Write files sequentially to avoid race conditions
+  for (const { path, content } of files) {
+    await writeFileWithDir(path, content);
+  }
 }
