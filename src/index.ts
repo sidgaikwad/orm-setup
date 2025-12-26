@@ -1,10 +1,13 @@
 #!/usr/bin/env bun
+// src/index.ts (FIXED)
 import { intro, outro, spinner, log, cancel, confirm } from "@clack/prompts";
 import chalk from "chalk";
 import { detectProject } from "./detector";
 import { promptOrmSetup } from "./prompts";
 import { resolvePaths } from "./paths";
 import { generateDrizzleSetup } from "./generators/drizzle";
+import { generatePrismaSetup } from "./generators/prisma";
+import { generateKyselySetup } from "./generators/kysely";
 import { installDependencies, addPackageScripts } from "./package-manager";
 
 async function main() {
@@ -64,55 +67,135 @@ async function main() {
     s.start("Installing dependencies...");
     await installDependencies(
       project.packageManager,
+      config.orm,
       config.database,
       config.includeStudio
     );
     s.stop("Dependencies installed");
 
-    // Step 5: Generate files
+    // Step 5: Generate files based on ORM choice
     s.start("Generating files...");
-    await generateDrizzleSetup({
-      paths,
-      database: config.database,
-      typescript: project.hasTypescript,
-      includeExamples: config.includeSchema,
-    });
+
+    switch (config.orm) {
+      case "drizzle":
+        await generateDrizzleSetup({
+          paths,
+          database: config.database,
+          typescript: project.hasTypescript,
+          includeExamples: config.includeSchema,
+        });
+        break;
+
+      case "prisma":
+        await generatePrismaSetup({
+          paths,
+          database: config.database,
+          includeExamples: config.includeSchema,
+        });
+        break;
+
+      case "kysely":
+        await generateKyselySetup({
+          paths,
+          database: config.database,
+          selectedTables: [], // Empty for now, will add templates later
+        });
+        break;
+    }
+
     s.stop("Files generated");
 
     // Step 6: Add scripts to package.json
     s.start("Updating package.json...");
-    await addPackageScripts(config.database);
+    await addPackageScripts(config.orm, config.database);
     s.stop("package.json updated");
 
     // Success!
-    outro(chalk.green.bold("✅ Drizzle ORM setup complete!"));
+    outro(
+      chalk.green.bold(
+        `✅ ${
+          config.orm === "drizzle"
+            ? "Drizzle"
+            : config.orm === "prisma"
+            ? "Prisma"
+            : "Kysely"
+        } ORM setup complete!`
+      )
+    );
 
     // Show next steps
     console.log();
     log.step(`Import your database client:`);
-    console.log(chalk.cyan(`  import { db } from '@/lib/db'`));
+
+    if (config.orm === "drizzle") {
+      console.log(chalk.cyan(`  import { db } from '@/lib/db'`));
+    } else if (config.orm === "prisma") {
+      console.log(chalk.cyan(`  import { prisma } from '@/lib/prisma'`));
+    } else {
+      console.log(chalk.cyan(`  import { db } from '@/lib/db'`));
+    }
+
     console.log();
     log.step("Next steps:");
-    console.log(`  ${chalk.gray("1.")} Add DATABASE_URL to .env`);
-    console.log(
-      `  ${chalk.gray("2.")} Run: ${chalk.cyan(
-        "bun db:generate"
-      )} (create migration)`
-    );
-    console.log(
-      `  ${chalk.gray("3.")} Run: ${chalk.cyan(
-        "bun db:migrate"
-      )} (apply migration)`
-    );
-    if (config.includeStudio) {
+
+    if (config.orm === "drizzle") {
+      console.log(`  ${chalk.gray("1.")} Add DATABASE_URL to .env`);
+      console.log(
+        `  ${chalk.gray("2.")} Run: ${chalk.cyan(
+          "bun db:generate"
+        )} (create migration)`
+      );
+      console.log(
+        `  ${chalk.gray("3.")} Run: ${chalk.cyan(
+          "bun db:migrate"
+        )} (apply migration)`
+      );
+      if (config.includeStudio) {
+        console.log(
+          `  ${chalk.gray("4.")} Run: ${chalk.cyan(
+            "bun db:studio"
+          )} (open database GUI)`
+        );
+      }
+    } else if (config.orm === "prisma") {
+      console.log(`  ${chalk.gray("1.")} Add DATABASE_URL to .env`);
+      console.log(
+        `  ${chalk.gray("2.")} Run: ${chalk.cyan(
+          "bun db:generate"
+        )} (generate client)`
+      );
+      console.log(
+        `  ${chalk.gray("3.")} Run: ${chalk.cyan(
+          "bun db:migrate"
+        )} (create & apply migration)`
+      );
       console.log(
         `  ${chalk.gray("4.")} Run: ${chalk.cyan(
           "bun db:studio"
-        )} (open database GUI)`
+        )} (open Prisma Studio)`
+      );
+    } else {
+      console.log(`  ${chalk.gray("1.")} Add DATABASE_URL to .env`);
+      console.log(
+        `  ${chalk.gray("2.")} Create migrations in migrations/ folder`
+      );
+      console.log(
+        `  ${chalk.gray("3.")} Run: ${chalk.cyan(
+          "bun db:migrate"
+        )} (apply migrations)`
       );
     }
+
     console.log();
-    log.info(`Documentation: ${chalk.cyan("https://orm.drizzle.team/docs")}`);
+
+    const docUrl =
+      config.orm === "drizzle"
+        ? "https://orm.drizzle.team/docs"
+        : config.orm === "prisma"
+        ? "https://www.prisma.io/docs"
+        : "https://kysely.dev/docs";
+
+    log.info(`Documentation: ${chalk.cyan(docUrl)}`);
   } catch (error) {
     if (error instanceof Error) {
       log.error(chalk.red(`Error: ${error.message}`));
