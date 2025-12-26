@@ -69,6 +69,40 @@ bun db:studio    # Open Prisma Studio
 - Node.js 18+ or Bun
 - A database (PostgreSQL, MySQL, or SQLite)
 
+## 🎯 Templates (v2.0+)
+
+Choose from 5 pre-built templates:
+
+### 📦 Starter
+
+- User table with auth fields
+- Perfect for getting started
+
+### 🚀 Blog
+
+- User, Post, Comment, Category
+- Full blogging platform schema
+- Includes relations and indexes
+
+### 🛒 E-commerce
+
+- User, Product, Order
+- Ready for online store
+- Inventory and pricing fields
+
+### 💼 SaaS
+
+- User, Organization, Membership, Subscription
+- Multi-tenant architecture
+- Team management built-in
+
+### ❌ Empty
+
+- No tables, start from scratch
+- Full control over your schema
+
+All templates work with Drizzle, Prisma, and Kysely!
+
 ## License
 
 MIT © Siddharth Gaikwad
