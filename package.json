@@ -1,6 +1,6 @@
 {
   "name": "@sidgaikwad/orm-setup",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Framework-agnostic CLI for setting up Drizzle, Prisma, or Kysely ORM with best practices",
   "type": "module",
   "main": "./dist/index.js",
