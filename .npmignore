@@ -1,0 +1,18 @@
+# Source files
+src/
+tests/
+
+# Config files
+.env
+.env.*
+tsconfig.json
+.gitignore
+.git/
+
+# Development
+node_modules/
+*.log
+.DS_Store
+
+# Only publish dist/
+!dist/
